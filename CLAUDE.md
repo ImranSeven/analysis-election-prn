@@ -74,26 +74,47 @@ Worked example from the paper (Damansara): `y = -0.6982x + 0.9746` → at x=1, y
 
 ## Data files — confirmed formats
 
-### 1. PRN2023 results: `Data/PRN 2023 Negeri Sembilan/*.xlsx` (36 files, one per DUN)
-- Official EC scoresheet (Borang SPR 760), sheet **"Main"**.
-- Columns (fixed order): `BIL.` | `NO. KOD DAERAH MENGUNDI` | `NAMA PUSAT MENGUNDI` |
-  `SALURAN` | `KERTAS UNDI DALAM PETI UNDI (A)` | **[party columns, variable count]** |
-  `JUMLAH UNDI` | `UNDI YANG DITOLAK (C)` | `KERTAS UNDI TIDAK DIMASUKKAN KE DALAM PETI UNDI (D)`.
-- **Party columns vary by seat** and must be detected **positionally** (between the two
-  anchor columns above), not by name — some seats are 2-way (e.g. Chennah: `PN`, `PH`),
-  BN seats will show `PN`, `BN`, and 3-corner fights add an **independent labelled by
-  candidate name**, not "IND".
-- **PH and BN never both appear as separate columns in the same seat** — they're Unity
-  Government allies and don't contest against each other. A seat has either a PH
-  candidate or a BN candidate, never both.
-- First column (`NO. KOD DAERAH MENGUNDI`) is blank on continuation rows (2nd, 3rd...
-  saluran of the same station) — needs forward-fill, but done carefully around the
-  special rows below.
-- Two special non-physical rows per seat: `UNDI POS` (postal — no station/saluran, code
-  blank) and `UNDI AWAL 126/01/00` (early voting — has a station/saluran, code ends `/00`).
-- A `JUMLAH` (seat total) row appears at the end — this is an aggregate, must be pulled
-  out separately, not treated as a stream row.
-- Filename pattern: `N01_CHENNAH_PRN_2023_PF.xlsx` → seat_code `N01`, seat_name `Chennah`.
+### 1. PRN2023 results: `ns_prn2023_results.csv` — **UPDATED, supersedes earlier assumption**
+
+> **Correction log:** originally assumed this would arrive as 36 separate per-DUN xlsx
+> files (`Data/PRN 2023 Negeri Sembilan/*.xlsx`) with variable, positionally-detected
+> party columns. The actual working file is a **single already-combined CSV across all
+> 36 DUNs**, and the party columns are **fixed**, not variable. `build_ns_prn2023_long.py`
+> was written against the old (wrong) assumption and **needs to be rewritten** — see
+> "Code / pipeline status" below.
+
+Confirmed columns (from a real sample, header + 3 rows for N.01 Chennah):
+```
+DUN | NO. KOD DAERAH MENGUNDI | NAMA PUSAT MENGUNDI | SALURAN | KERTAS UNDI DALAM PETI UNDI (A) | PN | PH | BN | IND | JUMLAH UNDI | UNDI YANG DITOLAK (C) | KERTAS UNDI TIDAK DIMASUKKAN KE DALAM PETI UNDI (D)
+```
+
+Key differences from the earlier assumption:
+- **Party columns are fixed for every seat**: `PN`, `PH`, `BN`, `IND` always exist as
+  columns, with **blank/empty cells** for whichever parties didn't contest that
+  particular seat (e.g. Chennah has values in `PN`/`PH`, blank `BN`/`IND`). No need for
+  positional anchor-column detection anymore — just melt these 4 named columns and drop
+  rows where the value is blank/NaN.
+- **`IND` is a generic column**, not a candidate-name column as we'd guessed from the
+  single-seat xlsx. (Still worth a name→party lookup later if a seat ever has more than
+  one independent — flag if that ever shows up.)
+- Confirms **PH and BN never both have values in the same row** — consistent with the
+  Unity Government not contesting against each other.
+- **`DUN` column format matches the roll file's `dun` column exactly** — both use
+  `"N.01 Chennah"` style (code + name combined in one string). This is good news: the
+  results-to-roll join can key on this shared `DUN`/`dun` text directly, rather than
+  deriving seat codes separately from filenames as originally planned.
+- **`NO. KOD DAERAH MENGUNDI` may contain an embedded newline inside a quoted CSV cell**
+  for ordinary station rows, e.g. `"KAMPONG SUNGAI BULOH\n126 / 01 / 01"` (name on one
+  line, code on the next) — different from the single xlsx we inspected earlier, which
+  had it as one line with a space (`"KAMPONG SUNGAI BULOH 126 / 01 / 01"`). Regex
+  extraction of the code should still work since `\s` matches newlines too, but the
+  "name" portion (text before the code) needs `.strip()`/newline-stripping, and don't
+  assume single-line text when doing any manual eyeballing.
+- Postal (`UNDI POS`) and early (`UNDI AWAL 126 / 01 / 00`) rows keep their old shape:
+  `UNDI POS` has no station/saluran/code at all; `UNDI AWAL ...` has the code on the same
+  line, no embedded newline.
+- Still need to confirm: is there a `JUMLAH` (seat total) row per DUN in this combined
+  file, same as before? Check when the full file is loaded.
 
 ### 2. Ethnic roll: `nsn_se15_2023.csv` (one file, all 36 NS DUNs, ~864k voter rows)
 - Voter-level microdata. Columns: `uid, birth_year, sex, ethnicity, state, parlimen,
@@ -129,27 +150,10 @@ Worked example from the paper (Damansara): `y = -0.6982x + 0.9746` → at x=1, y
 
 ## Code / pipeline status
 
-### `build_ns_prn2023_long.py` — ✅ written and validated
-Parses all 36 PRN2023 xlsx files into one tidy **long-format** table (one row per
-seat/station/saluran/party) plus a separate seat-totals table.
-
-- Long format chosen deliberately: seats have different numbers/names of party columns
-  (2-way vs 3-way with a named independent), so long format is the only schema that
-  stacks cleanly across all 36 without per-seat special-casing downstream.
-- Party columns detected positionally between the two fixed anchor column headers.
-- `vote_type` column flags `postal` / `early` / `ordinary` — computed **before**
-  forward-fill, using the raw (pre-fill) station code text, so postal/early rows are
-  never accidentally merged into a neighbouring station's identity.
-- Seat-total `JUMLAH` row is excluded from the long table and written to a separate
-  totals file for later integrity checks (Part C).
-- Outputs: `data/interim/ns_prn2023_results_long.csv`,
-  `data/interim/ns_prn2023_seat_totals.csv`.
-- **Validated against the one real file we have (N01 Chennah)**: postal (93 valid) and
-  early (29 valid) votes parsed correctly, forward-fill correctly scoped per station,
-  vote shares sum to exactly 1.0 per saluran, zero duplicate rows, zero null votes.
-- **Not yet run against the full 36-file folder** — user needs to run this locally and
-  confirm: exactly 36 seats parsed, 0 duplicates, 0 `[ERROR]` lines, and eyeball the
-  printed party-column list per seat for anything unexpected.
+### PRN2023 results ingestion — ✅ done, no script needed
+`ns_prn2023_results.csv` arrives already combined across all 36 DUNs with fixed
+`PN`/`PH`/`BN`/`IND` columns, so `build_ns_prn2023_long.py` (written for the earlier
+36-separate-xlsx assumption) is not needed for this file. A2 is complete.
 
 ### Next script to write: aggregate `nsn_se15_2023.csv` into ethnic composition per saluran
 Not yet started. Plan:
@@ -162,9 +166,12 @@ Not yet started. Plan:
 ## Current status (update this section as you go)
 
 **Part A (PRN2023):**
-- A1 Confirm inputs — ✅
-- A2 Ingest 36 scoresheets → long table — ✅ script written & spot-validated; ⬜ user to run on full 36-file folder and confirm clean
-- A3 Aggregate roll → ethnic composition per saluran — ⬜ **next step**
+- A1 Confirm inputs — 🔶 revised: results file is actually one combined
+  `ns_prn2023_results.csv` with fixed PN/PH/BN/IND columns, not 36 xlsx files with
+  variable columns. Roll file (`nsn_se15_2023.csv`) understanding unchanged.
+- A2 Ingest results into long table — ✅ done (file arrives already combined with fixed
+  party columns — no ingestion script needed)
+- A3 Aggregate roll → ethnic composition per saluran — ⬜ next step after A2 rewrite
 - A4 Merge results + ethnic composition — ⬜
 - A5 Apply BN seat filter — ⬜ (deliberately deferred)
 - A6 Validation harness (reproduce paper's DAP NS numbers) — ⬜
@@ -176,10 +183,16 @@ Not yet started. Plan:
 **Part C (combine):** not started — blocked on A and B.
 
 ## Open questions / things to confirm before proceeding
+- Does `ns_prn2023_results.csv` include a `JUMLAH` (seat-total) row per DUN, same as the
+  single xlsx did? Confirm on load.
+- Does any NS seat have **more than one independent** in the same contest? The combined
+  file's generic `IND` column can only hold one independent's votes per row — if a seat
+  ever has 2+, this schema silently can't represent that. Check `IND` column for any
+  seat and flag if this comes up.
 - Does the GE2022 roll (once obtained) carry a `dun` field the same way the 2023 roll
   does? If yes, skip sourcing a separate polling-district → DUN delineation file.
 - Did `dm` codes / saluran numbering change between GE2022 and PRN2023? Must check
   empirically once the GE2022 files are in hand — do not assume stability.
-- Confirm party-column detection holds up across all 36 files, especially any seat with
-  an independent candidate (column will be a candidate name, not "IND" — may need a
-  name→party mapping later using Appendix-1-style candidate lists for narrative writeup).
+- Confirm whether the GE2022 results file (once obtained) follows this same
+  "one combined CSV, fixed party columns" shape, or the old "per-seat file" shape — don't
+  assume based on the PRN2023 correction; check fresh.
