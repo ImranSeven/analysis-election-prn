@@ -99,10 +99,45 @@ Key differences from the earlier assumption:
   one independent — flag if that ever shows up.)
 - Confirms **PH and BN never both have values in the same row** — consistent with the
   Unity Government not contesting against each other.
-- **`DUN` column format matches the roll file's `dun` column exactly** — both use
-  `"N.01 Chennah"` style (code + name combined in one string). This is good news: the
-  results-to-roll join can key on this shared `DUN`/`dun` text directly, rather than
-  deriving seat codes separately from filenames as originally planned.
+- **`DUN` column format does NOT match the roll file's `dun` column** — CORRECTION to
+  the original assumption below. Verified directly against both files:
+  - Results files (`ns_prn2023_results.csv` and `ns_ge2022_results.csv`) use
+    `"N01 CHENNAH"` style — no period after the seat letter/number, all-caps name.
+  - Roll files (`nsn_se15_2023.csv` and `ge15_2022.csv`) use `"N.01 Chennah"` style —
+    period after the seat number, title-case name.
+  - The join must **normalize both sides** (strip periods, case-fold, strip whitespace)
+    rather than key on raw text equality.
+  - Also found **stray trailing whitespace** in some `DUN` values in the results files,
+    e.g. `'N04 KLAWANG '` and `'N07 JERAM PADANG '` (PRN2023) — `.strip()` both sides as
+    part of normalization, not just case/period folding.
+  - `ns_ge2022_results.csv` additionally has a **typo**: 45 of 46 rows for the Bahau
+    seat are labelled `'NO8 BAHAU'` (letter O, not zero) instead of `'N08 BAHAU'` (only
+    1 row is spelled correctly). Must special-case this fix before grouping by seat.
+- **A `PARLIMEN` column is also present** in both results files (not previously
+  documented) — NS's 36 state seats sit inside 8 parliamentary seats: P.126 Jelebu,
+  P.127 Jempol, P.128 Seremban, P.129 Kuala Pilah, P.130 Rasah, P.131 Rembau,
+  P.132 Port Dickson, P.133 Tampin. Not needed for the seat-level regression but useful
+  context (e.g., GE2022 postal votes are only resolved to this level — see below).
+- **There are two `IND` columns** in both results files (`IND` and `IND` again, which
+  pandas auto-suffixes to `IND.1` on load) — this is the "more than one independent"
+  case flagged as an open question, now **confirmed to occur**: in
+  `ns_prn2023_results.csv`, **N10 Nilai and N13 Sikamat both have two simultaneous
+  independents** (both IND columns nonzero in the same row). `MUDA` is also a fixed
+  column in the PRN2023 file, used only in N12 Temiang (matches the paper's mention of
+  a MUDA candidate there). In `ns_ge2022_results.csv`, the second `IND.1` column is
+  always zero — no GE2022 NS seat had two independents.
+- **Confirmed: no `JUMLAH` (seat-total) row** in either results file — checked
+  explicitly, none found. (Resolves the open question below for both years.)
+- Polling-station code spacing differs by file: PRN2023 uses spaced style
+  (`"KAMPONG SUNGAI BULOH 126 / 01 / 01"`), GE2022 uses unspaced style
+  (`"KAMPONG SUNGAI BULOH 126/01/01"`). Regex extraction should tolerate optional
+  whitespace around slashes for both years.
+- **GE2022 postal votes are only resolved to the `PARLIMEN` level, not to a specific
+  `DUN`** — the 8 `UNDI POS` rows in `ns_ge2022_results.csv` (one per parliamentary
+  seat) have a blank `DUN`. This differs from PRN2023, where postal-vote rows do carry
+  a `DUN`. Doesn't block the core regression (paper excludes postal/early votes from it
+  anyway), but means GE2022 postal turnout can't be validated at the state-seat level
+  from the results side alone.
 - **`NO. KOD DAERAH MENGUNDI` may contain an embedded newline inside a quoted CSV cell**
   for ordinary station rows, e.g. `"KAMPONG SUNGAI BULOH\n126 / 01 / 01"` (name on one
   line, code on the next) — different from the single xlsx we inspected earlier, which
@@ -127,8 +162,17 @@ Key differences from the earlier assumption:
   GE2022 later: if the GE2022-era roll also has a `dun` column, we may not need a
   separate polling-district → state-seat delineation file at all.
 - `ethnicity` values seen: `Malay, Chinese, Indian, Other, Orang Asli, Bumi Sabah, Bumi
-  Sarawak` (the last three are negligible/absent in Peninsular NS but worth keeping in
-  mind for completeness).
+  Sarawak`. CORRECTION: Bumi Sabah/Bumi Sarawak are **not absent** in NS, just small —
+  confirmed present in both the 2023 and GE2022 NS rolls (a few hundred to a few
+  thousand voters each, well under 1% of NS voters). Bucket these into the paper's
+  "Other" category when aggregating.
+- **`dm` vs `dm_vr` distinction confirmed**: `dm_vr` is the voter's home/residence
+  polling district and stays a normal station code even for postal/early voters; `dm`
+  is where the vote is actually cast/tabulated, and shows the special
+  `".../UP Undi Pos"` or `".../00 Undi Awal"` codes for postal/early voters. This
+  is why postal/early voters can't be assigned a stream-level ethnic composition even
+  though we know their home precinct via `dm_vr` — `dm_vr` isn't the room they voted
+  in, so it carries no ballot-stream link.
 - Key format mismatch to handle at join time: `dm` in this file is
   `"126/01/01 Kampong Sungai Buloh"` (code first) vs the xlsx's `"KAMPONG SUNGAI BULOH
   126 / 01 / 01"` (name first, different spacing) — **join on the extracted numeric code
@@ -138,15 +182,42 @@ Key differences from the earlier assumption:
 - Postal/early voters are tagged distinctly in `dm`: postal = `".../UP Undi Pos"`,
   early = `".../00 Undi Awal"` — matches the xlsx's special rows exactly.
 
-### 3. Still needed (not yet in hand)
-- **GE2022 stream-level results** for NS (BN/PH/PN votes per parliamentary polling
-  station/saluran). This is the main outstanding gap before Part B can start.
-- **GE2022-dated roll** with ethnicity — ideally same shape as `nsn_se15_2023.csv`. Need
-  to confirm whether it has a `dun` column (see note above) and whether `dm` codes /
-  saluran numbering match 2023 or differ (streams can be renumbered between elections —
-  must verify, not assume).
-- **BN-contested seat list** — deliberately not sourced/applied yet; only needed at the
-  filtering step (Part A, step A5), after the full 36-seat pipeline is built.
+### 3. GE2022 results: `ns_ge2022_results.csv` — **NEW, now in hand**
+1,669 rows, same "one combined CSV, fixed party columns" shape as the PRN2023 results
+file (confirmed fresh, not assumed). Columns:
+```
+PARLIMEN | DUN | NO. KOD DAERAH MENGUNDI | NAMA PUSAT MENGUNDI | SALURAN | KERTAS UNDI
+DALAM PETI UNDI (A) | BN | PH | PN | PEJUANG | WARISAN | PSM | IND | IND | JUMLAH UNDI |
+UNDI YANG DITOLAK (C) | KERTAS UNDI TIDAK DIMASUKKAN KE DALAM PETI UNDI (D)
+```
+- Party columns are the national GE2022 set (`PEJUANG`, `WARISAN`, `PSM` included even
+  though they're marginal/absent in most NS seats) — melt all of them, drop
+  blank/zero, same approach as PRN2023.
+- See the DUN-format, typo, and postal-vote gotchas noted above in the PRN2023 section
+  — most of them (join normalization, code spacing) apply equally here, and the
+  `'NO8 BAHAU'` typo and PARLIMEN-only postal rows are specific to this file.
+
+### 4. GE2022 roll: `ge15_2022.csv` — **NEW, now in hand, national file**
+2.7GB, all of Malaysia, same schema as `nsn_se15_2023.csv`
+(`uid, birth_year, sex, ethnicity, state, parlimen, dun, dm_vr, dm, pm, saluran`).
+**Must be filtered to `state == "Negeri Sembilan"` before use** — do not load the full
+file into memory. Filtering with `grep ",Negeri Sembilan," ge15_2022.csv` gives
+**850,865 NS rows** (verified), a similar order of magnitude to the 864,426-row 2023
+roll.
+- Confirms the open question below: **yes**, this roll has a `dun` column resolving
+  every voter to their NS state seat (`"N.01 Chennah"` style, period + title case,
+  all 36 NS seats present) — **no separate polling-district → DUN delineation file is
+  needed** for GE2022 either.
+- `dm` / `dm_vr` / postal / early-vote tagging conventions are identical in style to
+  the 2023 roll (unspaced `"126/01/01 Kampong Sungai Buloh"` code-first format,
+  `".../UP Undi Pos"`, `".../00 Undi Awal"`).
+- Still open: whether the **numeric stream (`saluran`) assignments** for a given
+  station are stable between GE2022 and PRN2023 — this needs an empirical per-seat
+  check at modeling time, not just a structural read (see open questions below).
+
+### 5. BN-contested seat list — deliberately not sourced/applied yet
+Only needed at the filtering step (Part A, step A5), after the full 36-seat pipeline is
+built.
 
 ## Code / pipeline status
 
@@ -178,21 +249,29 @@ Not yet started. Plan:
 - A7 Regression engine — ⬜
 - A8 PRN2023-side output table — ⬜
 
-**Part B (GE2022):** not started — blocked on sourcing GE2022 results + roll files.
+**Part B (GE2022):** data files now in hand and structurally inspected
+(`ns_ge2022_results.csv`, `ge15_2022.csv` filtered to NS). Ingestion/aggregation
+scripts not yet written — next actual coding step once Part A is validated.
 
 **Part C (combine):** not started — blocked on A and B.
 
 ## Open questions / things to confirm before proceeding
-- Does `ns_prn2023_results.csv` include a `JUMLAH` (seat-total) row per DUN, same as the
-  single xlsx did? Confirm on load.
-- Does any NS seat have **more than one independent** in the same contest? The combined
-  file's generic `IND` column can only hold one independent's votes per row — if a seat
-  ever has 2+, this schema silently can't represent that. Check `IND` column for any
-  seat and flag if this comes up.
-- Does the GE2022 roll (once obtained) carry a `dun` field the same way the 2023 roll
-  does? If yes, skip sourcing a separate polling-district → DUN delineation file.
-- Did `dm` codes / saluran numbering change between GE2022 and PRN2023? Must check
-  empirically once the GE2022 files are in hand — do not assume stability.
-- Confirm whether the GE2022 results file (once obtained) follows this same
-  "one combined CSV, fixed party columns" shape, or the old "per-seat file" shape — don't
-  assume based on the PRN2023 correction; check fresh.
+- ~~Does `ns_prn2023_results.csv` include a `JUMLAH` row per DUN?~~ **Resolved: no**,
+  checked both results files directly, no such row in either.
+- ~~Does any NS seat have more than one independent?~~ **Resolved: yes** — PRN2023 has
+  two simultaneous independents in N10 Nilai and N13 Sikamat (both `IND`/`IND.1`
+  columns nonzero). GE2022 has none (`IND.1` always zero).
+- ~~Does the GE2022 roll carry a `dun` field like the 2023 roll?~~ **Resolved: yes** —
+  `ge15_2022.csv` filtered to NS has all 36 state seats in the `dun` column, same style
+  as the 2023 roll. No separate delineation file needed.
+- ~~Does the GE2022 results file follow the same "one combined CSV" shape?~~
+  **Resolved: yes** — `ns_ge2022_results.csv` confirmed, same shape, different (national)
+  party column set.
+- **Still open**: did `dm` codes / `saluran` numbering change between GE2022 and
+  PRN2023 for the same physical station? Both rolls use the same code *format*, but
+  whether the *numbering* is stable per station needs an empirical per-seat check once
+  Part B ingestion starts — do not assume stability.
+- **New from this pass**: confirm the impact of GE2022 postal votes only being
+  resolved to `PARLIMEN` (not `DUN`) in the results file — does this affect any
+  aggregate turnout figures we plan to report for Part B/C, given the paper's approach
+  already excludes postal/early votes from the core regression?
