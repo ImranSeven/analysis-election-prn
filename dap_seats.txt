@@ -1,0 +1,11 @@
+P.126 Jelebu	    N.01 Chennah	    LOKE SIEW FOOK	            DAP
+P.127 Jempol	    N.08 Bahau	        TEO KOK SEONG	            DAP
+P.128 Seremban	    N.10 Nilai	        ARUL KUMAR A/L JAMBUNATHAN	DAP
+P.128 Seremban	    N.11 Lobak	        CHEW SEH YONG	            DAP
+P.128 Seremban	    N.12 Temiang	    NG CHIN TSAI	            DAP
+P.130 Rasah	        N.21 Bukit Kepayang	NICOLE TAN LEE KOON	        DAP
+P.130 Rasah	        N.22 Rahang	        SIAU MEOW KONG	            DAP
+P.130 Rasah	        N.23 Mambau	        YAP YEW WENG	            DAP
+P.130 Rasah	        N.24 Seremban Jaya	GUNASEKAREN A/L PALASAMY	DAP
+P.132 Port Dickson	N.30 Lukut	        CHOO KEN HWA	            DAP
+P.133 Tampin	    N.36 Repah	        VEERAPAN A/L SUPERAMANIAM	DAP

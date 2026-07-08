@@ -67,8 +67,29 @@ Worked example from the paper (Damansara): `y = -0.6982x + 0.9746` → at x=1, y
   (visible in its Table 6 — many entries read exactly 99.0).
 - Only report a group's support if that group is **≥20%** of the seat's registered voters.
 - Vote share denominator = **valid votes** (excludes rejected ballots).
-- **Postal and early votes are excluded** from the granular ethnic regression (can't be
-  tied to a physical stream/composition) — the paper explicitly drops these.
+- **Postal and early votes are excluded** from the granular ethnic regression — the
+  paper explicitly drops these, but the reason differs by type (verified empirically
+  against `nsn_se15_2023.csv`, 2026-07-04):
+  - **Postal votes** truly have no physical stream — `dm` is a special
+    `".../UP Undi Pos"` code with no room/saluran tied to a real ballot box.
+  - **Early votes** *do* get a real `saluran` and physical `dm` location (e.g.
+    `"126/01/00 Undi Awal"` at `"Khemah A IPD Jelebu"`), so "no physical stream" is
+    **not** the reason for these. The actual reason: early-voting streams are **not
+    age-sorted** the way ordinary streams are. At an ordinary station, average birth
+    year climbs cleanly from stream 1 (oldest) to the last stream (youngest) — the
+    mechanism the whole method depends on. At an early-voting location, average birth
+    year bounces around with no ordering, because early voting is reserved for a
+    specific occupational group (police/military/election-day duty staff — every early
+    voter checked was born 1991–2001, a narrow young band, not a spread across ages).
+    An early-voting stream's ethnic composition reflects "which unit got posted there,"
+    not "which age cohort of local residents this is" — mixing it into the same
+    regression as ordinary streams would contaminate the age/ethnicity relationship the
+    method relies on. (Also checked: early-voting locations don't mix multiple state
+    seats' voters together either — each of 30 sampled locations served exactly one
+    DUN — so that's not an additional confound here, just the age-sorting one.)
+  - Early votes are a small but non-trivial share of the roll (~3.0%, 26,079 of 864,425
+    NS voters in the 2023 roll) — excluding them is a minor loss of coverage, not a
+    major one.
 - BN-transfer metric (secondary, not core): `x / (|x| + |y|)` where x, y are two
   contestants' percentage-point vote share changes.
 
@@ -99,20 +120,66 @@ Key differences from the earlier assumption:
   one independent — flag if that ever shows up.)
 - Confirms **PH and BN never both have values in the same row** — consistent with the
   Unity Government not contesting against each other.
-- **`DUN` column format does NOT match the roll file's `dun` column** — CORRECTION to
-  the original assumption below. Verified directly against both files:
-  - Results files (`ns_prn2023_results.csv` and `ns_ge2022_results.csv`) use
-    `"N01 CHENNAH"` style — no period after the seat letter/number, all-caps name.
-  - Roll files (`nsn_se15_2023.csv` and `ge15_2022.csv`) use `"N.01 Chennah"` style —
-    period after the seat number, title-case name.
-  - The join must **normalize both sides** (strip periods, case-fold, strip whitespace)
-    rather than key on raw text equality.
-  - Also found **stray trailing whitespace** in some `DUN` values in the results files,
-    e.g. `'N04 KLAWANG '` and `'N07 JERAM PADANG '` (PRN2023) — `.strip()` both sides as
-    part of normalization, not just case/period folding.
-  - `ns_ge2022_results.csv` additionally has a **typo**: 45 of 46 rows for the Bahau
-    seat are labelled `'NO8 BAHAU'` (letter O, not zero) instead of `'N08 BAHAU'` (only
-    1 row is spelled correctly). Must special-case this fix before grouping by seat.
+- **`DUN`/`dun` format mismatch — ✅ FIXED (2026-07-04)**. Originally, results files
+  used `"N01 CHENNAH"` style (no period, all-caps) while roll files used
+  `"N.01 Chennah"` style (period, title-case) — raw text equality wouldn't join.
+  Imran ran `script.py` (repo root; `normalize_dun`/`normalize_parlimen` functions)
+  against **both roll files** (`nsn_se15_2023.csv` and `ge15_2022.csv`, in place,
+  overwriting the originals) to strip the period and uppercase `dun` (e.g.
+  `"N.01 Chennah"` → `"N01 CHENNAH"`), and uppercase-only `parlimen` (e.g.
+  `"P.126 Jelebu"` → `"P.126 JELEBU"`, dot kept). Verified after the fix:
+  - `nsn_se15_2023.csv` `dun` values now exactly match `ns_prn2023_results.csv` `DUN`
+    values (36/36, no set difference) once the results side is `.strip()`'d.
+  - The re-filtered NS slice of `ge15_2022.csv` `dun`/`parlimen` now exactly match
+    `ns_ge2022_results.csv` `DUN`/`PARLIMEN` (36/36 and 8/8) once the results side is
+    `.strip()`'d.
+  - Row counts are unchanged post-normalization (864,426 for the 2023 roll; 850,865 for
+    the NS slice of the GE2022 roll) — confirms no rows were dropped or duplicated.
+  - **Remaining work**: the results files themselves still have stray trailing
+    whitespace on some `DUN`/`PARLIMEN` values (see below) — a plain `.strip()` on the
+    results side at ingestion/join time is now the *only* normalization needed (no more
+    period-removal or case-folding required, since the roll side already matches).
+- **Stray trailing whitespace in results files — mostly ✅ FIXED (2026-07-04)**.
+  - `ns_prn2023_results.csv`: **fully fixed** — `DUN` and `PARLIMEN` now have zero
+    whitespace-only variants (verified: 36 unique `DUN`, 8 unique `PARLIMEN`, no
+    leading/trailing whitespace on any value).
+  - `ns_ge2022_results.csv`: `PARLIMEN` is fixed (`'P.129 KUALA PILAH '` → clean, 8
+    unique values, no whitespace). **`DUN` still has one straggler**: `'N04 KLAWANG '`
+    (1 row) still coexists with the correctly-spaced `'N04 KLAWANG'` (25 rows) — unique
+    `DUN` count is 37, not 36. A `.strip()` on the results side still fully closes the
+    join (verified: stripped `DUN` set matches the roll's `dun` set exactly, 36/36), so
+    this is no longer a blocker, but worth a final cleanup pass on that one row if a
+    fully-clean source file is wanted.
+- **`NO8 BAHAU` typo in `ns_ge2022_results.csv` — ✅ FIXED (2026-07-04)**. Previously 45
+  of 46 Bahau-seat rows were mislabelled `'NO8 BAHAU'` (letter O); confirmed now all 46
+  rows correctly read `'N08 BAHAU'`, and the file's unique `DUN` count dropped from 38
+  to 37 (36 clean seats + the still-outstanding `'N04 KLAWANG '` whitespace duplicate).
+- **Drifting station code — ✅ FIXED (2026-07-08)**. The third segment of
+  `NO. KOD DAERAH MENGUNDI` (e.g. the `01` in `126/03/01`) is supposed to identify one
+  physical polling station and stay fixed across all of that station's `SALURAN` rows.
+  It originally didn't: for 345 of 448 stations (77%), across every NS DUN except
+  Chennah, the code **climbed by 1 with each saluran row** instead of staying constant
+  (e.g. `"LUI TIMUR 126/03/02"` at saluran 1 through `"LUI TIMUR 126/03/06"` at
+  saluran 5) — consistent with a spreadsheet drag-fill error at some point in
+  compiling the file, since the pattern wasn't a fixable formula (tested
+  `code = station's list position + saluran - 1`, which explained 88% of rows in one
+  DUN but only 7% in another). This made the `(dun, dm_code, saluran)` join produce
+  ~2,700 mismatched/duplicated rows instead of a clean 1-to-1 match. Imran fixed the
+  source file directly; verified after the fix: **0 of 386 stations** now have a
+  drifting code, and the file's unique stream-key set now matches the roll's 1,405
+  streams exactly (zero set difference either direction).
+- **Multiple "meja" (ballot box) rows per stream — confirmed real, not an error.**
+  After the drifting-code fix, 224 of the 1,405 streams still had 2+ rows sharing the
+  same `(DUN, dm_code, saluran)` — but with genuinely different vote counts, not
+  duplicate data. Example: `N05 SERTING`'s `127/05/03` saluran 1 has two rows
+  (valid votes 281 and 255). This is a large stream split across multiple physical
+  ballot boxes at the same station/saluran — confirmed by checking the roll's
+  registered-voter count for that stream (800) against the *summed* valid votes
+  (281+255=536, a plausible ~67% turnout), whereas either row alone would imply an
+  implausibly low turnout. **Fix: sum the numeric vote columns across duplicate
+  `(DUN, dm_code, saluran)` rows before melting/joining.** Verified this collapses
+  1,711 ordinary rows to exactly 1,405 — matching `stream_ethnic` 1-to-1 — with sane
+  turnout everywhere (mean 66%, max 88%, zero rows over 100%).
 - **A `PARLIMEN` column is also present** in both results files (not previously
   documented) — NS's 36 state seats sit inside 8 parliamentary seats: P.126 Jelebu,
   P.127 Jempol, P.128 Seremban, P.129 Kuala Pilah, P.130 Rasah, P.131 Rembau,
@@ -158,9 +225,13 @@ Key differences from the earlier assumption:
   count in this file (14,554) exactly matches the scoresheet's printed `JUMLAH PEMILIH:
   14,554`. `dm`/`pm`/`saluran` values line up 1:1 with the xlsx scoresheet.
 - `dun` field already resolves each voter to their **state seat** directly — e.g. all 36
-  NS DUNs are present as `"N.01 Chennah"`, `"N.02 Pertang"`, etc. This is very useful for
-  GE2022 later: if the GE2022-era roll also has a `dun` column, we may not need a
-  separate polling-district → state-seat delineation file at all.
+  NS DUNs are present. **Format note**: originally `"N.01 Chennah"` style; as of
+  2026-07-04 this file has been normalized in place via `script.py` to
+  `"N01 CHENNAH"` style (matching the results files' `DUN` column — see the join-fix
+  note in the PRN2023 results section above). Likewise `parlimen` is now
+  `"P.126 JELEBU"` style (uppercased, dot kept). This is very useful for GE2022 later:
+  the GE2022-era roll also has a `dun` column (see below), so we don't need a separate
+  polling-district → state-seat delineation file at all.
 - `ethnicity` values seen: `Malay, Chinese, Indian, Other, Orang Asli, Bumi Sabah, Bumi
   Sarawak`. CORRECTION: Bumi Sabah/Bumi Sarawak are **not absent** in NS, just small —
   confirmed present in both the 2023 and GE2022 NS rolls (a few hundred to a few
@@ -194,8 +265,9 @@ UNDI YANG DITOLAK (C) | KERTAS UNDI TIDAK DIMASUKKAN KE DALAM PETI UNDI (D)
   though they're marginal/absent in most NS seats) — melt all of them, drop
   blank/zero, same approach as PRN2023.
 - See the DUN-format, typo, and postal-vote gotchas noted above in the PRN2023 section
-  — most of them (join normalization, code spacing) apply equally here, and the
-  `'NO8 BAHAU'` typo and PARLIMEN-only postal rows are specific to this file.
+  — most of them (join normalization, code spacing) apply equally here. The
+  `'NO8 BAHAU'` typo (now fixed) and PARLIMEN-only postal rows are specific to this
+  file.
 
 ### 4. GE2022 roll: `ge15_2022.csv` — **NEW, now in hand, national file**
 2.7GB, all of Malaysia, same schema as `nsn_se15_2023.csv`
@@ -205,12 +277,19 @@ file into memory. Filtering with `grep ",Negeri Sembilan," ge15_2022.csv` gives
 **850,865 NS rows** (verified), a similar order of magnitude to the 864,426-row 2023
 roll.
 - Confirms the open question below: **yes**, this roll has a `dun` column resolving
-  every voter to their NS state seat (`"N.01 Chennah"` style, period + title case,
-  all 36 NS seats present) — **no separate polling-district → DUN delineation file is
-  needed** for GE2022 either.
+  every voter to their NS state seat, all 36 NS seats present — **no separate
+  polling-district → DUN delineation file is needed** for GE2022 either.
+- **Format note**: originally `"N.01 Chennah"` style (period + title case), same as the
+  2023 roll; as of 2026-07-04 this file has been normalized in place via `script.py`
+  to `"N01 CHENNAH"` style (matching `ns_ge2022_results.csv`'s `DUN` column) and
+  `parlimen` to `"P.126 JELEBU"` style. Re-filtering the normalized file for
+  `state == "Negeri Sembilan"` still gives 850,865 rows (unchanged), and the resulting
+  `dun`/`parlimen` sets now match `ns_ge2022_results.csv`'s `DUN`/`PARLIMEN` exactly
+  (36/36 and 8/8) once the results side is `.strip()`'d.
 - `dm` / `dm_vr` / postal / early-vote tagging conventions are identical in style to
   the 2023 roll (unspaced `"126/01/01 Kampong Sungai Buloh"` code-first format,
-  `".../UP Undi Pos"`, `".../00 Undi Awal"`).
+  `".../UP Undi Pos"`, `".../00 Undi Awal"`) — these columns were not touched by the
+  normalization script.
 - Still open: whether the **numeric stream (`saluran`) assignments** for a given
   station are stable between GE2022 and PRN2023 — this needs an empirical per-seat
   check at modeling time, not just a structural read (see open questions below).
@@ -221,30 +300,71 @@ built.
 
 ## Code / pipeline status
 
+### `script.py` (repo root) — ✅ run, normalizes roll `dun`/`parlimen` in place
+One-off normalization script (`normalize_dun`/`normalize_parlimen` functions,
+`INPUT_PATH` hardcoded at the top and edited per run). Run against both
+`Data/nsn_se15_2023.csv` and `Data/ge15_2022.csv` on 2026-07-04, overwriting each file
+in place. Converts `dun` from `"N.01 Chennah"` → `"N01 CHENNAH"` and `parlimen` from
+`"P.126 Jelebu"` → `"P.126 JELEBU"`, so both roll files now key-match the results
+files' `DUN`/`PARLIMEN` columns (modulo the results files' own residual whitespace —
+see the PRN2023 results section above). If either roll file needs to be regenerated
+from a fresh source export, **re-run this script before doing any join** — the roll
+files are not currently normalized at the source, only in our working copies.
+
 ### PRN2023 results ingestion — ✅ done, no script needed
 `ns_prn2023_results.csv` arrives already combined across all 36 DUNs with fixed
 `PN`/`PH`/`BN`/`IND` columns, so `build_ns_prn2023_long.py` (written for the earlier
-36-separate-xlsx assumption) is not needed for this file. A2 is complete.
+36-separate-xlsx assumption) is not needed for this file.
 
-### Next script to write: aggregate `nsn_se15_2023.csv` into ethnic composition per saluran
-Not yet started. Plan:
-1. Group by `(dun, dm, pm, saluran)`, count by `ethnicity`.
-2. Pivot to `pct_malay, pct_chinese, pct_indian, pct_other` (fractions summing to ~1).
-3. Extract clean `dm_code` from `dm` using the same regex approach as the results parser.
-4. Keep `n_registered` per stream (useful as a weight later).
-5. Assert ethnic shares sum to 1.0 (±0.02); flag violators.
+### Aggregate `nsn_se15_2023.csv` into ethnic composition per saluran — ✅ done (A3)
+Written in `N9_State Election_analysis.ipynb`, runs clean against the full 864,425-row
+2023 roll:
+1. Drop postal + early voters (`dm` contains `Undi Pos` or `Undi Awal`) — **26,225
+   dropped (3.03%)**.
+2. Extract a clean `dm_code` from `dm` (e.g. `"126/01/01 Kampong Sungai Buloh"` →
+   `"126/01/01"`) via regex; asserted zero extraction failures on the remaining rows.
+3. Bucket `ethnicity` into `malay`/`chinese`/`indian`/`other` (Orang Asli, Bumi Sabah,
+   Bumi Sarawak, Other → `other`); asserted zero unmapped values.
+4. Group by `(dun, dm_code, saluran)`, count by ethnic group, pivot to
+   `pct_malay/pct_chinese/pct_indian/pct_other` + `n_registered`.
+5. Asserted all rows' four percentages sum to 1.0 within ±0.02 — passed, zero
+   violations.
+Result: **1,405 distinct polling streams** across the 36 NS seats, each with a clean
+ethnic composition. This is the table A4 joins against the melted PRN2023 results.
+
+### Melt PRN2023 results + merge with ethnic composition — ✅ done (A2 melt + A4)
+Written in `N9_State Election_analysis.ipynb`, right after the A3 cells:
+1. Strip `DUN` whitespace, drop postal/early rows (`NO. KOD DAERAH MENGUNDI` ==
+   `UNDI POS` or contains `UNDI AWAL`) — 116 of 1,827 rows dropped.
+2. Extract `dm_code` from `NO. KOD DAERAH MENGUNDI` the same way as A3 (regex tolerant
+   of the spaced `"NAME 126 / 03 / 01"` format and embedded newlines).
+3. **Collapse multi-"meja" rows**: sum `PN`/`PH`/`BN`/`MUDA`/`IND`/`IND.1`/`JUMLAH UNDI`/
+   etc. across any rows sharing the same `(DUN, dm_code, saluran)` — see the
+   "Multiple meja rows" gotcha above. Asserted this collapses to exactly 1,405 rows,
+   matching `stream_ethnic`.
+4. Melt `PN`/`PH`/`BN`/`MUDA`/`IND`/`IND.1` into long `party`/`votes` rows, drop
+   `votes == 0` (fixed columns use `0` for "didn't contest", not blank/NaN), compute
+   `vote_share = votes / valid_votes` (`valid_votes` = `JUMLAH UNDI`, matches the
+   paper's "valid votes" denominator convention).
+5. Outer-merge with `stream_ethnic` on `(dun, dm_code, saluran)` with `indicator=True`
+   and assert zero unmatched rows.
+Result: **3,227 rows** (one row per party per stream), all matched cleanly — zero
+`left_only`/`right_only` rows. This `merged` table is the base for A6 (validation
+against the paper's DAP numbers) and A7 (the regression engine).
 
 ## Current status (update this section as you go)
 
 **Part A (PRN2023):**
-- A1 Confirm inputs — 🔶 revised: results file is actually one combined
-  `ns_prn2023_results.csv` with fixed PN/PH/BN/IND columns, not 36 xlsx files with
-  variable columns. Roll file (`nsn_se15_2023.csv`) understanding unchanged.
-- A2 Ingest results into long table — ✅ done (file arrives already combined with fixed
-  party columns — no ingestion script needed)
-- A3 Aggregate roll → ethnic composition per saluran — ⬜ next step after A2 rewrite
-- A4 Merge results + ethnic composition — ⬜
-- A5 Apply BN seat filter — ⬜ (deliberately deferred)
+- A1 Confirm inputs — ✅ done. Structure, join keys, and known data issues (DUN/dun
+  format, whitespace, `NO8 BAHAU` typo, drifting station code, multi-meja rows) all
+  confirmed and fixed as of 2026-07-08.
+- A2 Ingest results into long table — ✅ done, melt written as part of A4 (see pipeline
+  status below).
+- A3 Aggregate roll → ethnic composition per saluran — ✅ done, see pipeline status
+  below for details (1,405 streams, all sanity checks passed).
+- A4 Merge results + ethnic composition — ✅ done, see pipeline status below (3,227
+  rows, zero unmatched).
+- A5 Apply BN seat filter — ⬜ (deliberately deferred, next step)
 - A6 Validation harness (reproduce paper's DAP NS numbers) — ⬜
 - A7 Regression engine — ⬜
 - A8 PRN2023-side output table — ⬜
@@ -275,3 +395,9 @@ scripts not yet written — next actual coding step once Part A is validated.
   resolved to `PARLIMEN` (not `DUN`) in the results file — does this affect any
   aggregate turnout figures we plan to report for Part B/C, given the paper's approach
   already excludes postal/early votes from the core regression?
+- ~~Does the `DUN`/`dun` format mismatch block the results-to-roll join?~~
+  **Resolved: fixed** — `script.py` normalized both roll files' `dun`/`parlimen` in
+  place to match the results files' format (2026-07-04). Only a plain `.strip()` on
+  the results side is now needed to close the join (see PRN2023 results section).
+- ~~Does `ns_ge2022_results.csv` have a Bahau seat typo (`'NO8 BAHAU'`)?~~
+  **Resolved: fixed** — all 46 Bahau rows now correctly read `'N08 BAHAU'`.
