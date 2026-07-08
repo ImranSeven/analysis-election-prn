@@ -294,9 +294,17 @@ roll.
   station are stable between GE2022 and PRN2023 — this needs an empirical per-seat
   check at modeling time, not just a structural read (see open questions below).
 
-### 5. BN-contested seat list — deliberately not sourced/applied yet
-Only needed at the filtering step (Part A, step A5), after the full 36-seat pipeline is
-built.
+### 5. DAP-contested seat list: `dap_seats.txt` — **NEW, now in hand**
+Tab-separated, 11 rows, columns: `PARLIMEN | DUN | candidate name | party (always DAP)`.
+Matches the paper's Appendix 1 NS DAP candidate list exactly (Chennah, Bahau, Nilai,
+Lobak, Temiang, Bukit Kepayang, Rahang, Mambau, Seremban Jaya, Lukut, Repah). `DUN`
+values are in the roll's `"N.01 Chennah"` style (period, title-case) — needs the same
+normalization as the other join keys before filtering `merged`. This is the seat list
+for **A6 (validation)**, not A5/A7 (the BN filter) — see Current status below.
+
+### 6. BN-contested seat list — deliberately not sourced/applied yet
+Only needed at the filtering step (Part A, step A7 — see reordering note in Current
+status below), after A5/A6 (regression engine + DAP validation) are done.
 
 ## Code / pipeline status
 
@@ -349,8 +357,28 @@ Written in `N9_State Election_analysis.ipynb`, right after the A3 cells:
 5. Outer-merge with `stream_ethnic` on `(dun, dm_code, saluran)` with `indicator=True`
    and assert zero unmatched rows.
 Result: **3,227 rows** (one row per party per stream), all matched cleanly — zero
-`left_only`/`right_only` rows. This `merged` table is the base for A6 (validation
-against the paper's DAP numbers) and A7 (the regression engine).
+`left_only`/`right_only` rows. This `merged` table is the base for A5 (the regression
+engine) and A6 (validation against the paper's DAP numbers).
+
+### Regression engine — ✅ done (A5)
+Written in `N9_State Election_analysis.ipynb`, right after A4:
+1. `seat_ethnic`: seat-level ethnic composition, weighted by each stream's
+   `n_registered` (not a simple stream average) — one row per DUN (36 total), used
+   only for the ≥20%-of-registered-voters reporting rule.
+2. `estimate_support(group, pct_col)`: bivariate OLS via `np.polyfit` on a single
+   `(dun, party)` group's streams, evaluated at `pct = 1.0`. Returns `NaN` if a group
+   has fewer than 2 streams or zero variance in the ethnic share (can't fit a line).
+3. `cap_support`: clips to `[0, 1]`, with Chinese specifically capped at `0.99` to
+   match the paper's Table 6 convention.
+4. `run_regression_engine`: loops every `(dun, party)` pair in `merged`, applies the
+   above, and zeroes out (`NaN`s) a group's estimate if `seat_ethnic` shows that group
+   is under 20% of the seat's registered voters.
+Result: `support_table`, 83 rows (one per contested `(dun, party)` pair), with
+`malay_support`/`chinese_support` columns. **Quick sanity check against the paper's
+published Table 6 already looks strong**: N01 Chennah PH — ours 29.8%/92.6% vs paper's
+31.3%/92.6%; N08 Bahau PH — ours 35.8%/99.0%(capped) vs paper's 36.3%/99.0%. Chinese
+matches exactly in both; Malay is within ~1.5pp. Formal side-by-side validation across
+all 11 DAP seats is A6, not yet done.
 
 ## Current status (update this section as you go)
 
@@ -364,9 +392,23 @@ against the paper's DAP numbers) and A7 (the regression engine).
   below for details (1,405 streams, all sanity checks passed).
 - A4 Merge results + ethnic composition — ✅ done, see pipeline status below (3,227
   rows, zero unmatched).
-- A5 Apply BN seat filter — ⬜ (deliberately deferred, next step)
-- A6 Validation harness (reproduce paper's DAP NS numbers) — ⬜
-- A7 Regression engine — ⬜
+- A5 Regression engine — ✅ done, see pipeline status above (`support_table`, 83
+  `(dun, party)` rows; quick spot-check against the paper's Table 6 already close).
+  **Reordered (2026-07-08)**: originally planned as A7 (after the BN filter), moved up
+  ahead of the BN filter — we need the engine built before we can validate anything,
+  and validating against DAP (which has published ground truth) is the whole reason we
+  built all 36 seats instead of just BN's.
+- A6 Validation harness (reproduce paper's DAP NS numbers) — ⬜ **next step**.
+  Originally planned as A6 but logically had to follow building the engine. Run the
+  A5 engine with `party = PH`, filtered to the 11 seats in `dap_seats.txt` (new file,
+  matches the paper's Appendix 1 NS DAP candidate list exactly), and compare the
+  resulting Malay/Chinese support estimates against the paper's Table 6 "Voting
+  PH — PRN 2023" columns for those seats (e.g. Chennah: Malay 31.3%, Chinese 92.6%).
+  This can be done now, entirely from the PRN2023 side — no need to wait for Part B
+  (GE2022), since Table 6's PRN2023 columns don't depend on the GE2022 baseline.
+- A7 Apply BN seat filter — ⬜ **deferred until A6 passes** (originally A5 — pushed
+  back so we don't trust the pipeline on BN, which has no ground truth, before proving
+  it reproduces DAP's published numbers).
 - A8 PRN2023-side output table — ⬜
 
 **Part B (GE2022):** data files now in hand and structurally inspected
