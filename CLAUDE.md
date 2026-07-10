@@ -516,19 +516,46 @@ literally, since BN contested the *parliamentary* seat, not this specific DUN.
 - B4 Merge B2 + B3 — ✅ done. Same outer-join-with-`indicator`-and-assert approach as
   A4. Result: **5,470 rows, all matched** (`both`) — zero `left_only`/`right_only`,
   confirming the prediction from B2/B3's matching stream counts.
-- B5 Regression engine — ⬜ **next step**. Same logic as A5 (`estimate_support`/`cap_support`/
-  `run_regression_engine`) — copy the functions over rather than re-deriving them.
-- B6 Validation harness — ⬜. **New validation opportunity**: Table 6 has a GE2022
-  half we haven't checked yet ("Voting PH — GE2022" Malay/Chinese columns for the same
-  11 DAP seats) — A6 only validated the PRN2023 columns. Same `dap_seats.txt` seat
-  list, same comparison approach.
-- B7 Apply the BN seat filter — ⬜. Reuse the **same 17 seat codes** already
-  identified from Part A's `merged` — the point of Table 6-style comparison is the
-  same physical seats across two elections, not re-deriving "which seats did BN
-  contest" from the GE2022 side (see the parliamentary-vs-state note above).
-- B8 GE2022-side output table — ⬜. Same shape as `bn_output`.
+- B5 Regression engine — ✅ done. Copied `estimate_support`/`cap_support`/
+  `run_regression_engine` verbatim from Part A, plus a `seat_ethnic` table built the
+  same way (registered-voter-weighted composition per DUN, 36 rows). Result:
+  `support_table`, **159 `(dun, party)` rows** (more than PRN2023's 83, since GE2022
+  had more national parties — PEJUANG, WARISAN, PSM — on the ballot in some seats).
+- B6 Validation harness — ✅ done. Same approach as A6, but against Table 6's
+  **"Voting PH — GE2022"** Malay/Chinese columns (transcribed from the paper) for the
+  same 11 `dap_seats.txt` seats.
+  - **Chinese support matches closely** — all 11 seats within ≤1.3pp of the paper's
+    published figure.
+  - **Malay support within ~5pp for 9 of 11 seats.** Two seats show a larger gap: N10
+    Nilai (−8.5pp) and N12 Temiang (−5.3pp) — the same two seats (plus Seremban Jaya
+    on the PRN2023 side) that showed the largest gaps in A6's validation too,
+    reinforcing the earlier hypothesis that something about these specific seats
+    (independent candidates? other structural factor) mildly biases the
+    Malay-support regression low, not just a PRN2023-specific issue. N21 Bukit
+    Kepayang is a new, smaller outlier here (+4.1pp) not flagged in A6. Treated as an
+    accepted caveat, same as Part A — modest and directionally consistent, not
+    erratic.
+- B7 Apply the BN seat filter — ✅ done. Reused the same 17 seat codes from Part A's
+  A7 (hardcoded list, not re-derived from GE2022 data, per the parliamentary-vs-state
+  note above) and filtered `support_table` to `party == 'BN'` for those DUNs.
+  Confirmed all 17 seats have a GE2022 BN row (`missing` set is empty) — BN contested
+  the parliamentary seat overlapping every one of these 17 state seats in GE2022, as
+  expected.
+- B8 GE2022-side output table — ✅ done. Same shape/format as `bn_output`
+  (`bn_output_ge2022`, 17 rows). Malay support ranges ~31-68% across the 17 seats —
+  markedly higher than the PRN2023 side's ~34-57%, consistent with BN's GE2022 losses
+  reversing by PRN2023. Chinese support clears the 20% threshold in **2 of 17** seats
+  this time (vs 1 of 17 in Part A): N02 Pertang (6.0%) and N35 Gemencheh (4.2%) — both
+  low, consistent with BN doing poorly with Chinese voters in the 2022 GE "tsunami"
+  before recovering some ground by PRN2023 via PH-seat transfers. **Part B is now
+  fully built through B8.**
 
-**Part C (combine):** not started — blocked on A and B.
+**Part C (combine):** not started — blocked on A and B. Both are now done: Part A
+gives `bn_output` (PRN2023, 17 seats), Part B gives `bn_output_ge2022` (GE2022, same
+17 seats). Part C needs to join these two (same seat set, both notebooks already
+using identical `dun` keys) and add GE2022→PRN2023 change columns (percentage-point
+change in Malay/Chinese support) to complete the Table 5/6-style deliverable — plus
+whatever secondary "BN-transfer metric" analysis the boss's hypothesis calls for.
 
 ## Open questions / things to confirm before proceeding
 - ~~Does `ns_prn2023_results.csv` include a `JUMLAH` row per DUN?~~ **Resolved: no**,
