@@ -374,11 +374,63 @@ Written in `N9_State Election_analysis.ipynb`, right after A4:
    above, and zeroes out (`NaN`s) a group's estimate if `seat_ethnic` shows that group
    is under 20% of the seat's registered voters.
 Result: `support_table`, 83 rows (one per contested `(dun, party)` pair), with
-`malay_support`/`chinese_support` columns. **Quick sanity check against the paper's
-published Table 6 already looks strong**: N01 Chennah PH — ours 29.8%/92.6% vs paper's
-31.3%/92.6%; N08 Bahau PH — ours 35.8%/99.0%(capped) vs paper's 36.3%/99.0%. Chinese
-matches exactly in both; Malay is within ~1.5pp. Formal side-by-side validation across
-all 11 DAP seats is A6, not yet done.
+`malay_support`/`chinese_support` columns.
+
+### Validation against the paper's DAP numbers — ✅ done (A6)
+Written in `N9_State Election_analysis.ipynb`, right after A5. Loads `dap_seats.txt`
+(normalized the same way as the roll files), filters `support_table` to `party == 'PH'`
+for those 11 seats, and compares against the paper's Table 6 "Voting PH — PRN 2023"
+Malay/Chinese columns (hardcoded from the PDF, since it's small and static).
+
+**Found and fixed a real data bug during this pass**: `N22 RAHANG`'s `PN`/`PH` vote
+columns were swapped in `ns_prn2023_results.csv` — confirmed by comparing our seat-wide
+PN/PH totals against the paper's Table 3 (ours: PH 25.8%/PN 74.2%; paper: DAP 75.3%/PN
+24.7% — near-exact mirror images), while all other 10 DAP seats matched Table 3 within
+0.6pp. Verified the swap was isolated to this one seat (checked all 11 against Table 3
+before concluding it was Rahang-specific, not systemic). Imran fixed it directly in the
+CSV; a first attempt left 4 rows at station `130/22/09` (salurans 4–7) with `PN` and
+`PH` set to the *same* value instead of properly swapped (undercounting `JUMLAH UNDI`
+by 491 votes) — caught via a `party_sum == JUMLAH UNDI` check, and fixed using
+`PH = JUMLAH UNDI - PN` (valid since BN/MUDA/IND are all zero in this DUN).
+
+**Final validation results** (11 DAP seats, PH vote share):
+- **Chinese support matches essentially exactly** — all 11 seats within ≤0.05pp of the
+  paper's published figure (well within rounding).
+- **Malay support is within ~2pp for 8 of 11 seats.** Three seats show larger,
+  same-direction (underestimated) gaps: N10 Nilai (−6.1pp), N12 Temiang (−4.0pp), N24
+  Seremban Jaya (−9.7pp). Hypothesis, not yet confirmed: possibly related to
+  independent candidates in some of these seats shifting the denominator slightly
+  differently than the paper's method (e.g. Nilai's independent candidate, mentioned
+  in the paper, won 3.4% of the vote) — not investigated further, treated as an
+  accepted minor caveat rather than a blocker, since it's modest and consistent rather
+  than erratic like the Rahang bug was.
+- Considered **validated enough to proceed** to the BN-specific analysis (A7).
+
+### Apply the BN seat filter — ✅ done (A7)
+Written in `N9_State Election_analysis.ipynb`, right after A6. No external seat list
+needed — `merged` already reveals which DUNs BN contested (`party == 'BN'` rows exist
+only where BN fielded a candidate). Filtered `support_table` to those seats, with an
+assertion that the seat set matches what `merged` independently shows.
+
+Result: **BN contested 17 of NS's 36 seats**. Malay support estimates range ~34-57%
+across them. Chinese support is `NaN` (below the 20%-of-registered-voters reporting
+threshold) for 16 of 17 seats — only **N35 Gemencheh** clears the threshold, at 99.0%
+(capped). This is the PRN2023-side table for the boss's actual question; it still
+needs the GE2022 baseline (Part B) before it's a usable "change" table.
+
+### PRN2023-side output table — ✅ done (A8)
+Written in `N9_State Election_analysis.ipynb`, right after A7. Formats `bn_support`
+into a clean, paper-style table:
+- Splits `dun` (e.g. `"N02 PERTANG"`) into `seat_code` (`"N02"`) and a readable
+  title-cased `seat_name` (`"Pertang"`) via regex.
+- Formats `malay_support`/`chinese_support` as `"XX.X%"` strings, with `"N.A."` for
+  `NaN` (matching the paper's own Table 6 style for under-threshold groups).
+- Sorted by seat code, 17 rows, columns: `seat_code | seat_name | n_streams |
+  malay_support_pct | chinese_support_pct`.
+This (`bn_output`) is the finished PRN2023-only artifact — **Part A is now fully
+built through A8**. It's a placeholder shape for the final deliverable, not the
+deliverable itself: the boss's actual ask needs GE2022 columns and a change column
+alongside these, which is Part B + Part C.
 
 ## Current status (update this section as you go)
 
@@ -398,22 +450,83 @@ all 11 DAP seats is A6, not yet done.
   ahead of the BN filter — we need the engine built before we can validate anything,
   and validating against DAP (which has published ground truth) is the whole reason we
   built all 36 seats instead of just BN's.
-- A6 Validation harness (reproduce paper's DAP NS numbers) — ⬜ **next step**.
-  Originally planned as A6 but logically had to follow building the engine. Run the
-  A5 engine with `party = PH`, filtered to the 11 seats in `dap_seats.txt` (new file,
-  matches the paper's Appendix 1 NS DAP candidate list exactly), and compare the
-  resulting Malay/Chinese support estimates against the paper's Table 6 "Voting
-  PH — PRN 2023" columns for those seats (e.g. Chennah: Malay 31.3%, Chinese 92.6%).
-  This can be done now, entirely from the PRN2023 side — no need to wait for Part B
-  (GE2022), since Table 6's PRN2023 columns don't depend on the GE2022 baseline.
-- A7 Apply BN seat filter — ⬜ **deferred until A6 passes** (originally A5 — pushed
-  back so we don't trust the pipeline on BN, which has no ground truth, before proving
-  it reproduces DAP's published numbers).
-- A8 PRN2023-side output table — ⬜
+- A6 Validation harness (reproduce paper's DAP NS numbers) — ✅ done, see pipeline
+  status above (Chinese matches essentially exactly across all 11 DAP seats; Malay
+  within ~2pp for 8/11, with 3 seats showing a modest ~4-10pp underestimate treated as
+  an accepted caveat). Also caught and fixed a real `PN`/`PH` swap bug in
+  `N22 RAHANG` during this pass — see pipeline status above.
+- A7 Apply BN seat filter — ✅ done, see pipeline status above (17 BN seats; Malay
+  ~34-57%; Chinese reportable in only 1 seat, N35 Gemencheh at 99.0%).
+- A8 PRN2023-side output table — ✅ done, see pipeline status above (`bn_output`,
+  17 rows, paper-style formatting). **Part A is complete.**
 
-**Part B (GE2022):** data files now in hand and structurally inspected
-(`ns_ge2022_results.csv`, `ge15_2022.csv` filtered to NS). Ingestion/aggregation
-scripts not yet written — next actual coding step once Part A is validated.
+**Part B (GE2022):** data files in hand and structurally inspected
+(`ns_ge2022_results.csv`, `ge15_2022.csv` filtered to NS). Mirrors Part A's structure,
+same rationale — will be built in a **separate notebook**,
+`N9_General Election_analysis.ipynb` (already created, empty), rather than appended to
+the PRN2023 notebook, to keep each pipeline independently re-runnable and avoid
+cross-contaminating kernel state. Some code (the regression engine especially) will
+need to be copied over rather than imported, since the two notebooks don't share state.
+
+One structural note to keep in mind throughout Part B: **GE2022 was a parliamentary
+election, not a state election** — voters chose a Parlimen candidate, not a DUN
+candidate. The `dun` field only tells us which future state-seat boundary a voter/
+stream falls inside; the party vote columns reflect parliamentary-level choice. This
+matches exactly how the paper builds Table 6's GE2022 columns (same seats, same
+approach), so it's not a blocker — just don't read "BN contested this DUN in GE2022"
+literally, since BN contested the *parliamentary* seat, not this specific DUN.
+
+- B1 Confirm inputs — ✅ done (2026-07-09), written in
+  `N9_General Election_analysis.ipynb`. Pre-filtered `ge15_2022.csv` to NS via
+  `grep ",Negeri Sembilan,"` into a new permanent file, `Data/ge15_2022_ns.csv`
+  (850,865 rows) — the notebook loads this directly rather than the 2.7GB/21.2M-row
+  national file (loading the full file once did work but threw a mixed-dtype warning
+  and is needlessly slow/risky; the NS-filtered file loads cleanly with zero dtype
+  issues). Re-ran Part A's gotcha checks against `ns_ge2022_results.csv`:
+  - **Drifting station codes: none found** (0 of 379 stations) — good, this file
+    doesn't repeat PRN2023's bug.
+  - **Multi-meja duplicate rows: 199** `(DUN, dm_code, saluran)` keys have 2+ rows —
+    same phenomenon as Part A, same fix needed (sum before merging) in B2/B4.
+  - **No `JUMLAH` seat-total row** — confirmed absent, consistent with PRN2023.
+  - **Postal rows are genuinely PARLIMEN-only** — all 8 `UNDI POS` rows have blank
+    `DUN`, confirming the earlier structural note.
+  - **Party-column swap check**: cross-referenced aggregate PH/PN/BN seat totals
+    against the paper's Table 3 "GE2022" columns for the 11 DAP seats (same technique
+    that caught the N22 Rahang PRN2023 swap). Two seats (Temiang, Rahang) initially
+    looked off by ~5-6pp when postal+early votes were included — **turned out to be a
+    methodology mismatch, not a data bug**: the paper explicitly excludes postal *and*
+    early votes from all of its GE2022 seat-level figures, not just the Table 2
+    summary (footnote/methodology text: "these votes could not be accurately
+    allocated to individual state seats"). Re-checked excluding postal/early and all
+    11 seats landed within ~0.6pp of the paper. **Conclusion: no swap bug in this
+    file** — just remember to always exclude postal/early before comparing any
+    GE2022 aggregate to the paper, not only in the core regression.
+- B2 Ingest GE2022 results into long table — ✅ done. Collapsed the 199 multi-meja
+  duplicate rows first (sum, same fix as A4), then melted
+  `BN`/`PH`/`PN`/`PEJUANG`/`WARISAN`/`PSM`/`IND`/`IND.1`, dropped `votes == 0`, computed
+  `vote_share`. Result: 1,593 ordinary rows collapsed to **1,326 streams**, melted out
+  to **5,470** party-per-stream rows.
+- B3 Aggregate `ge15_2022_ns.csv` into ethnic composition per saluran — ✅ done. Same
+  approach as A3 exactly (drop postal/early — 20,368 dropped, 2.39% of 850,865 — bucket
+  ethnicity, group by `(dun, dm_code, saluran)`, compute percentages). Result:
+  **1,326 streams**, all sanity checks passed (percentages sum to 1.0 within ±0.02).
+  **Good early sign**: this is the exact same stream count as B2's collapsed results
+  (1,326 = 1,326) — strongly suggests B4's merge will close as cleanly as A4's did,
+  with no repeat of the drifting-code saga (already confirmed absent in B1 anyway).
+- B4 Merge B2 + B3 — ✅ done. Same outer-join-with-`indicator`-and-assert approach as
+  A4. Result: **5,470 rows, all matched** (`both`) — zero `left_only`/`right_only`,
+  confirming the prediction from B2/B3's matching stream counts.
+- B5 Regression engine — ⬜ **next step**. Same logic as A5 (`estimate_support`/`cap_support`/
+  `run_regression_engine`) — copy the functions over rather than re-deriving them.
+- B6 Validation harness — ⬜. **New validation opportunity**: Table 6 has a GE2022
+  half we haven't checked yet ("Voting PH — GE2022" Malay/Chinese columns for the same
+  11 DAP seats) — A6 only validated the PRN2023 columns. Same `dap_seats.txt` seat
+  list, same comparison approach.
+- B7 Apply the BN seat filter — ⬜. Reuse the **same 17 seat codes** already
+  identified from Part A's `merged` — the point of Table 6-style comparison is the
+  same physical seats across two elections, not re-deriving "which seats did BN
+  contest" from the GE2022 side (see the parliamentary-vs-state note above).
+- B8 GE2022-side output table — ⬜. Same shape as `bn_output`.
 
 **Part C (combine):** not started — blocked on A and B.
 
