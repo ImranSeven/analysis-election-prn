@@ -418,6 +418,59 @@ threshold) for 16 of 17 seats — only **N35 Gemencheh** clears the threshold, a
 (capped). This is the PRN2023-side table for the boss's actual question; it still
 needs the GE2022 baseline (Part B) before it's a usable "change" table.
 
+### Part C: Combine PRN2023 + GE2022 — ✅ done
+Written in a **new third notebook**, `N9_Joined_analysis.ipynb`. Since the three
+notebooks don't share kernel state, Part A and Part B each got an appended export
+cell (`bn_support.to_csv('Data/bn_support_prn2023.csv' / 'bn_support_ge2022.csv',
+index=False)`) writing their numeric (unformatted) 17-row BN support tables; Part C
+loads both CSVs directly rather than re-running either pipeline.
+1. Load both CSVs, assert same 17-seat set on both sides.
+2. Merge on `dun` (`validate='one_to_one'`), compute `malay_change_pp` /
+   `chinese_change_pp` = (PRN2023 − GE2022) × 100. `NaN` propagates whenever either
+   side is below the paper's 20%-of-registered-voters reporting threshold.
+3. **Seat-level output table** (`final_table`, 17 rows) — same paper-style formatting
+   as `bn_output`/`bn_output_ge2022` (percentages, "N.A." below threshold), now with
+   GE2022, PRN2023, and change columns side by side for both ethnic groups. This is
+   the Table 6-style half of the deliverable.
+4. **State-level summary** (`state_summary`, 1 row) — the paper's *actual* Table 5 is
+   a per-state average across a party's contested seats, not per-seat like Table 6.
+   Computed by averaging PRN2023/GE2022 support across the seats where each group
+   clears the 20% threshold (mirrors how the paper excludes "N.A." entries from a
+   state average rather than treating them as 0).
+5. **Hypothesis test** — classified all 17 seats by whether Malay support fell and
+   whether Chinese support rose.
+
+**Findings:**
+- **Malay support fell in 14 of 17 BN seats** (82%) between GE2022 and PRN2023 —
+  broadly consistent with the boss's hypothesis that BN lost Malay support to PN.
+  Three seats bucked this (N09 Lenggeng +2.9pp, N31 Bagan Pinang +2.9pp, N16 Seri
+  Menanti +3.5pp), all modest gains, not losses reversing to gains.
+- **Chinese support is only reportable (≥20% of registered voters) in both years for
+  1 of 17 seats: N35 Gemencheh.** There, the hypothesis's Chinese-transfer half is
+  confirmed dramatically — Chinese support rose from 4.2% (GE2022) to 99.0% (capped,
+  PRN2023), a +94.8pp swing, while Malay support fell 18.8pp (59.1% → 40.3%) — a
+  clean, complete match for the boss's predicted pattern in the one seat where it
+  can be fully tested.
+- N02 Pertang has Chinese support reportable in GE2022 (6.0%) but not PRN2023 (fell
+  just under the 20% threshold, or the seat's Chinese registered-voter share itself
+  dropped) — so a change can't be computed there even though the underlying pattern
+  is probably similar; flagged as a data-availability gap, not a hypothesis failure.
+- **State-level summary (NS, BN)**: Malay support averaged 53.9% (GE2022) → 46.1%
+  (PRN2023), a −7.8pp swing across all 17 seats. Chinese support (averaged over only
+  the 2 seats where it was ever reportable) went 5.1% → 99.0%, +93.9pp — but this
+  average is heavily skewed by tiny sample size (n=2 seats, one of which is only
+  half-reportable) and should be read as illustrative, not a robust state figure.
+- **Overall**: the hypothesis holds up qualitatively (majority Malay decline, the one
+  fully-testable seat shows a dramatic Chinese gain) but the Chinese half is mostly
+  **untestable** for 16 of 17 BN seats under the paper's own 20% reporting rule — BN's
+  seats are mostly too Malay-majority for Chinese support to clear the threshold at
+  all, which is itself a finding worth flagging to the boss (the ethnic-transfer
+  story may be real but is only *visible* in ethnically-mixed BN seats like
+  Gemencheh, not detectable in most of BN's more homogeneously-Malay seat portfolio).
+
+**Part C is now complete — the full three-part pipeline (A, B, C) is built,
+validated, and produces the final deliverable.**
+
 ### PRN2023-side output table — ✅ done (A8)
 Written in `N9_State Election_analysis.ipynb`, right after A7. Formats `bn_support`
 into a clean, paper-style table:
@@ -550,12 +603,23 @@ literally, since BN contested the *parliamentary* seat, not this specific DUN.
   before recovering some ground by PRN2023 via PH-seat transfers. **Part B is now
   fully built through B8.**
 
-**Part C (combine):** not started — blocked on A and B. Both are now done: Part A
-gives `bn_output` (PRN2023, 17 seats), Part B gives `bn_output_ge2022` (GE2022, same
-17 seats). Part C needs to join these two (same seat set, both notebooks already
-using identical `dun` keys) and add GE2022→PRN2023 change columns (percentage-point
-change in Malay/Chinese support) to complete the Table 5/6-style deliverable — plus
-whatever secondary "BN-transfer metric" analysis the boss's hypothesis calls for.
+**Part C (combine):** ✅ done, in a new third notebook `N9_Joined_analysis.ipynb`. See
+pipeline status above for full detail. Joins Part A's `bn_output`-equivalent (via
+exported CSV `Data/bn_support_prn2023.csv`) with Part B's `bn_output_ge2022`-equivalent
+(`Data/bn_support_ge2022.csv`), producing:
+- `final_table` — 17-row seat-level table (Table 6-style) with GE2022, PRN2023, and
+  percentage-point change columns for both Malay and Chinese support.
+- `state_summary` — 1-row NS-state BN average (Table 5-style): Malay 53.9%→46.1%
+  (−7.8pp), Chinese 5.1%→99.0% (+93.9pp, but only ever reportable in 2 of 17 seats).
+- Hypothesis test: Malay support fell in 14/17 BN seats (supports the boss's
+  Malay-loss prediction); Chinese support is only reportable in both years for 1 seat
+  (N35 Gemencheh), where it rose 4.2%→99.0% while Malay fell 18.8pp — a clean full
+  match for the hypothesis in the one fully-testable case. The Chinese-transfer half
+  of the hypothesis is largely **untestable** in most BN seats under the paper's own
+  20%-threshold rule, since BN's seat portfolio skews heavily Malay-majority — worth
+  flagging to the boss as a scope limitation, not a hypothesis failure.
+
+**The full A → B → C pipeline is now complete.**
 
 ## Open questions / things to confirm before proceeding
 - ~~Does `ns_prn2023_results.csv` include a `JUMLAH` row per DUN?~~ **Resolved: no**,
